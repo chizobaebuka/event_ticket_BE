@@ -87,3 +87,13 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
         res.status(500).json({ message: 'Internal Server Error', error: error.message });
     }
 }
+
+export const getAllUsers = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const users = await UserModel.findAll();
+        res.status(200).json({ status: 'success', message: 'Successfully fetched all users', data: users });
+    } catch (error: any) {
+        console.error('Error fetching users:', error);
+        res.status(500).json({ message: 'Internal Server Error' });
+    }
+}

@@ -3,6 +3,7 @@ import cors from 'cors';
 import bodyParser from "body-parser";
 import sequelize from "./db/sequelize";
 import userRouter from "./routes/user.route";
+import eventRouter from "./routes/event.route";
 
 const app = express();
 const port = process.env.PORT || 4000;
@@ -21,6 +22,7 @@ app.get("/", (req, res) => {
 });
 
 app.use("/api/v1/user", userRouter);
+app.use("/api/v1/event", eventRouter);
 
 async function startApp() {
     try {
