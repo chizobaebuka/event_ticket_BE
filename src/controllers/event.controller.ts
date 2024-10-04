@@ -80,9 +80,9 @@ export const bookTicket = async (req: RequestExt, res: Response): Promise<void> 
             await event.save(); // Save the updated event
 
             // Respond to the user
-            res.status(200).json({ 
-                message: 'Tickets booked successfully', 
-                availableTickets: event.availableTickets 
+            res.status(200).json({
+                message: 'Tickets booked successfully',
+                availableTickets: event.availableTickets
             });
         } else {
             // If not enough tickets are available, increase waiting list count
@@ -90,9 +90,9 @@ export const bookTicket = async (req: RequestExt, res: Response): Promise<void> 
             await event.save(); // Save the updated event
 
             await addToWaitingList(req, res); // Add to waiting list
-            res.status(200).json({ 
-                message: 'Not enough tickets available, added to waiting list', 
-                waitingListCount: event.waitingListCount 
+            res.status(200).json({
+                message: 'Not enough tickets available, added to waiting list',
+                waitingListCount: event.waitingListCount
             });
         }
     } catch (error) {
@@ -147,22 +147,84 @@ export const cancelTicket = async (req: RequestExt, res: Response): Promise<void
 
         // Increase the available tickets in the event model
         event.availableTickets += numberOfTickets; // Increase available tickets
+
+        // Check if there are users in the waiting list
         if (event.waitingListCount > 0) {
-            // Logic to handle the waiting list (e.g., notify users, etc.)
-            event.waitingListCount -= 1; // Reduce waiting list count as one ticket becomes available
+            const { user, waitingListEntry } = await getNextWaitingListUser(eventId);
+
+            if (user && waitingListEntry) {
+                await assignTicketToUser(user.id, eventId);
+                await waitingListEntry.destroy();
+                event.waitingListCount -= 1;
+            }
         }
+
         await event.save(); // Save the updated event
 
         // Respond to the user
         res.status(200).json({
             message: 'Tickets canceled successfully',
             availableTickets: event.availableTickets,
+            waitingListCount: event.waitingListCount,
         });
     } catch (error) {
         console.error('Error in cancelTicket:', error);
         res.status(500).json({ message: 'Internal Server Error' });
     }
 };
+
+// Helper functions
+async function getNextWaitingListUser(eventId: string) {
+    // Fetch the next user from the waiting list for the event
+    const nextEntry = await WaitingListModel.findOne({
+        where: { eventId },
+        order: [['position', 'ASC']], // ASC to get the next in line (smallest position)
+    });
+
+    // If no waiting list entry is found, return null
+    if (!nextEntry) return { user: null, waitingListEntry: null };
+
+    // Get the user details based on the found waiting list entry
+    const user = await UserModel.findByPk(nextEntry.userId);
+
+    return { user, waitingListEntry: nextEntry };
+}
+
+async function assignTicketToUser(userId: string, eventId: string): Promise<void> {
+    // Find the event by ID
+    const event = await EventModel.findByPk(eventId);
+    if (!event) {
+        throw new Error('Event not found');
+    }
+
+    if (event.availableTickets > 0) {
+        // Create a new ticket order
+        await TicketOrderModel.create({
+            userId,
+            eventId,
+            // Include other ticket details if needed
+        });
+
+        // Reduce the available tickets count
+        event.availableTickets -= 1;
+        await event.save();
+    } else {
+        // If no tickets are available, add the user to the waiting list
+        const nextPosition = await getNextWaitingListUser(eventId);
+        await WaitingListModel.create({
+            id: uuidv4(),
+            userId,
+            eventId,
+            position: nextPosition?.waitingListEntry?.position, // Add the 'position' property
+        });
+
+        // Update the waiting list count on the event
+        event.waitingListCount += 1;
+        await event.save();
+    }
+}
+
+
 
 export const getEventByStatus = async (req: RequestExt, res: Response): Promise<void> => {
     try {
@@ -201,22 +263,22 @@ export const getEventByStatus = async (req: RequestExt, res: Response): Promise<
     }
 };
 
-export const getNextWaitingListUser = async (eventId: string) => {
-    try {
-        const nextEntry = await WaitingListModel.findOne({
-            where: { eventId },
-            order: [['position', 'ASC']],
-        });
+// export const getNextWaitingListUser = async (eventId: string) => {
+//     try {
+//         const nextEntry = await WaitingListModel.findOne({
+//             where: { eventId },
+//             order: [['position', 'ASC']],
+//         });
 
-        if (!nextEntry) return { user: null, waitingListEntry: null };
+//         if (!nextEntry) return { user: null, waitingListEntry: null };
 
-        const user = await UserModel.findByPk(nextEntry.userId); 
-        return { user, waitingListEntry: nextEntry };
-    } catch (error) {
-        console.error('Error getting next waiting list user:', error);
-        return null; // Return null in case of error
-    }
-};
+//         const user = await UserModel.findByPk(nextEntry.userId); 
+//         return { user, waitingListEntry: nextEntry };
+//     } catch (error) {
+//         console.error('Error getting next waiting list user:', error);
+//         return null; // Return null in case of error
+//     }
+// };
 
 export const addToWaitingList = async (req: RequestExt, res: Response) => {
     try {
@@ -244,7 +306,7 @@ export const addToWaitingList = async (req: RequestExt, res: Response) => {
             eventId,
             position: newPosition,
         });
-    
+
         // Update waiting list count on the event
         event.waitingListCount += 1;
         await event.save();
