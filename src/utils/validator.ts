@@ -12,3 +12,8 @@ export const createEventSchema = z.object({
     name: z.string(),
     totalTickets: z.number().positive(),
 });
+
+export const bookTicketSchema = z.object({
+    eventId: z.string(),
+    userId: z.string(),
+});

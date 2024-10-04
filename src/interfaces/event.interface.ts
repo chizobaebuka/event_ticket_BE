@@ -36,8 +36,3 @@ export interface IEvent {
     createdAt?: Date;
     updatedAt?: Date;
 }
-
-// export interface InitializeEventRequest {
-//     name: string;
-//     totalTickets: number;
-// }

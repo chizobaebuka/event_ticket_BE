@@ -8,12 +8,12 @@ import { signUpUserSchema } from '../utils/validator';
 
 dotenv.config(); // Make sure to load your environment variables
 
-interface RequestExt extends Request {
-    user?: {
-        id: string;
-        email: string;
-    };
-}
+// interface RequestExt extends Request {
+//     user?: {
+//         id: string;
+//         email: string;
+//     };
+// }
 
 export const registerUser: (req: Request, res: Response) => Promise<void> = async (req, res) => {
     try {

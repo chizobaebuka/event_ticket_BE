@@ -3,4 +3,3 @@ export interface ICore {
     createdAt: Date;
     updatedAt: Date;
 }
-
