@@ -49,6 +49,9 @@ The Event Ticket Booking System is a Node.js application that provides a RESTful
     npx sequelize-cli db:migrate
 7  **Undo All Migrations**
     npx sequelize-cli db:migrate:undo:all
+8  **Initialize Jest for Testing**
+    npm install --save-dev jest ts-jest @types/jest supertest
+    create the jest.config.ts file
 
 
 ### CLONE AND CONFIGURE
@@ -59,3 +62,4 @@ The Event Ticket Booking System is a Node.js application that provides a RESTful
 5. Start testing your apis 
 6. Base URL for events on local http://localhost:${port}/api/v1/event
 6. Base URL for user on local http://localhost:${port}/api/v1/user
+

@@ -6,7 +6,7 @@ import WaitingListModel from '../db/models/waitinglists';
 import UserModel from '../db/models/usermodel';
 import TicketOrderModel from '../db/models/ticketordermodel';
 
-interface RequestExt extends Request {
+export interface RequestExt extends Request {
     user?: {
         id: string;
         email: string;
