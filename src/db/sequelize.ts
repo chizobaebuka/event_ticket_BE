@@ -1,18 +1,17 @@
 import { Sequelize } from 'sequelize';
-import dotenv from 'dotenv';
+import { env } from '../config/env';
 
-dotenv.config();
-
-const sequelize = new Sequelize(
-    String(process.env.DB_NAME),
-    String(process.env.DB_USER),
-    String(process.env.DB_PASSWORD),
-    {
-        host: process.env.DB_HOST,
-        dialect: 'postgres',
-        port: Number(process.env.DB_PORT),
-        logging: false,
-    }
-);
+const sequelize = new Sequelize(env.DB_NAME, env.DB_USER, env.DB_PASSWORD, {
+    host: env.DB_HOST,
+    port: env.DB_PORT,
+    dialect: 'postgres',
+    logging: false,
+    pool: {
+        max: 10,
+        min: 0,
+        acquire: 30000,
+        idle: 10000,
+    },
+});
 
 export default sequelize;

@@ -1,19 +1,4 @@
-// src/interfaces/EventDTO.ts
-export interface CreateEventDTO {
-    name: string;
-    totalTickets: number;
-}
-
-export interface UpdateEventDTO {
-    name?: string;
-    totalTickets?: number;
-    availableTickets?: number;
-}
-
-export interface EventStatusDTO {
-    availableTickets: number;
-    waitingListCount: number; // Assuming you will implement the waiting list feature
-}
+import { ICore } from '.';
 
 export enum EventStatusEnum {
     AVAILABLE_TICKET = 'available ticket',
@@ -26,13 +11,21 @@ export enum TicketStatus {
     cancelled = 'cancelled',
 }
 
-export interface IEvent {
-    id: string;
+export interface IEvent extends ICore {
     name: string;
     totalTickets: number;
     availableTickets: number;
     waitingListCount: number;
-    status: EventStatusEnum; // Use the EventStatusEnum here for type safety
-    createdAt?: Date;
-    updatedAt?: Date;
+    status: EventStatusEnum;
+}
+
+export interface CreateEventDTO {
+    name: string;
+    totalTickets: number;
+}
+
+export interface BookingResult {
+    booked: boolean;
+    availableTickets: number;
+    waitingListCount: number;
 }

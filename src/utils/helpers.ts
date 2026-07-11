@@ -1,8 +1,9 @@
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
+import { env } from '../config/env';
 
-
-export const generateValidToken = () => {
-    const userPayload = { id: uuidv4(), email: 'user@example.com' }; 
-    return jwt.sign(userPayload, process.env.JWT_SECRET_KEY as string, { expiresIn: '1h' });
-}
+/** Test helper: mints a JWT shaped like a real login token, for exercising authenticateToken. */
+export const generateValidToken = (): string => {
+    const userPayload = { id: uuidv4(), email: 'user@example.com' };
+    return jwt.sign(userPayload, env.JWT_SECRET_KEY, { expiresIn: '1h' });
+};

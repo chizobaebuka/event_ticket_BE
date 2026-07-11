@@ -1,4 +1,10 @@
 /dist
 /node_modules
 .env
+.env.*
+!.env.sample
 coverage
+.DS_Store
+**/.DS_Store
+*.log
+npm-debug.log*

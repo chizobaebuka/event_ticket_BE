@@ -1,319 +1,58 @@
-import { Request, Response } from 'express';
-import { v4 as uuidv4 } from 'uuid';
-import EventModel from '../db/models/eventmodel';
-import { createEventSchema } from '../utils/validator';
-import WaitingListModel from '../db/models/waitinglists';
-import UserModel from '../db/models/usermodel';
-import TicketOrderModel from '../db/models/ticketordermodel';
+import { Response } from 'express';
+import { asyncHandler } from '../utils/asyncHandler';
+import { AuthenticatedRequest } from '../middleware/auth.middleware';
+import { UnauthorizedError } from '../errors/AppError';
+import * as eventService from '../services/event.service';
 
-export interface RequestExt extends Request {
-    user?: {
-        id: string;
-        email: string;
-    };
-}
-
-export const initializeEvent = async (req: Request, res: Response): Promise<void> => {
-    try {
-        // Validate the request body
-        const { name, totalTickets } = createEventSchema.parse(req.body);
-
-        // Check if an event with the same name already exists
-        const existingEvent = await EventModel.findOne({ where: { name } });
-        if (existingEvent) {
-            res.status(400).json({ message: 'Event with this name already exists.' });
-            return;
-        }
-
-        // Create a new event
-        const newEvent = await EventModel.create({
-            name,
-            totalTickets,
-            availableTickets: totalTickets,
-            waitingListCount: 0,
-            createdAt: new Date(),
-        });
-
-        // Send success response
-        res.status(201).json({ message: 'Event created successfully', event: newEvent });
-    } catch (error) {
-        console.error('Error initializing event:', error);
-        res.status(500).json({ message: 'Internal Server Error' });
+const requireUserId = (req: AuthenticatedRequest): string => {
+    if (!req.user?.id) {
+        throw new UnauthorizedError();
     }
+    return req.user.id;
 };
 
-export const bookTicket = async (req: RequestExt, res: Response): Promise<void> => {
-    try {
-        const { eventId } = req.params;
-        const userId = req.user?.id;
-        const { numberOfTickets } = req.body; // Expect numberOfTickets in the request body
+export const initializeEvent = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const event = await eventService.initializeEvent(req.body);
+    res.status(201).json({ status: 'success', message: 'Event created successfully', event });
+});
 
-        if (!userId) {
-            res.status(401).json({ message: 'Unauthorized' });
-            return;
-        }
+export const bookTicket = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const userId = requireUserId(req);
+    const { eventId } = req.params;
+    const { numberOfTickets } = req.body;
 
-        // Validate number of tickets
-        if (!numberOfTickets || numberOfTickets <= 0) {
-            res.status(400).json({ message: 'Invalid number of tickets' });
-            return;
-        }
+    const result = await eventService.bookTickets(eventId, userId, numberOfTickets);
 
-        // Fetch the event with its availableTickets
-        const event = await EventModel.findByPk(eventId);
-        if (!event) {
-            res.status(404).json({ message: 'Event not found' });
-            return;
-        }
-
-        // Check if enough tickets are available
-        if (event.availableTickets >= numberOfTickets) {
-            // Create the ticket orders
-            const ticketOrders = Array.from({ length: numberOfTickets }).map(() => ({ userId, eventId }));
-            await TicketOrderModel.bulkCreate(ticketOrders); // Book multiple tickets
-
-            // Reduce the available tickets in the event model
-            event.availableTickets -= numberOfTickets; // Decrease the available tickets
-            if (event.availableTickets === 0) {
-                event.status = 'sold out'; // Update status to sold out
-            }
-            await event.save(); // Save the updated event
-
-            // Respond to the user
-            res.status(200).json({
-                message: 'Tickets booked successfully',
-                availableTickets: event.availableTickets
-            });
-        } else {
-            // If not enough tickets are available, increase waiting list count
-            event.waitingListCount += numberOfTickets; // Adjust waiting list count accordingly
-            await event.save(); // Save the updated event
-
-            await addToWaitingList(req, res); // Add to waiting list
-            res.status(200).json({
-                message: 'Not enough tickets available, added to waiting list',
-                waitingListCount: event.waitingListCount
-            });
-        }
-    } catch (error) {
-        console.error('Error in bookTicket:', error);
-        res.status(500).json({ message: 'Internal Server Error' });
-    }
-};
-
-export const cancelTicket = async (req: RequestExt, res: Response): Promise<void> => {
-    try {
-        const { eventId } = req.params;
-        const userId = req.user?.id;
-        const { numberOfTickets } = req.body; // Expect numberOfTickets in the request body
-
-        if (!userId) {
-            res.status(401).json({ message: 'Unauthorized' });
-            return;
-        }
-
-        // Validate number of tickets
-        if (!numberOfTickets || numberOfTickets <= 0) {
-            res.status(400).json({ message: 'Invalid number of tickets' });
-            return;
-        }
-
-        // Fetch the event with its availableTickets
-        const event = await EventModel.findByPk(eventId);
-        if (!event) {
-            res.status(404).json({ message: 'Event not found' });
-            return;
-        }
-
-        // Find the ticket orders for this user and event
-        const userTickets = await TicketOrderModel.findAll({
-            where: { userId, eventId },
-        });
-
-        // Calculate the number of tickets booked by the user
-        const bookedTicketsCount = userTickets.length;
-
-        // Check if the user is canceling more tickets than they booked
-        if (bookedTicketsCount < numberOfTickets) {
-            res.status(400).json({ message: 'You cannot cancel more tickets than you have booked' });
-            return;
-        }
-
-        // Delete the specified number of ticket orders
-        await TicketOrderModel.destroy({
-            where: { userId, eventId },
-            limit: numberOfTickets, // Limit to the number of tickets being canceled
-        });
-
-        // Increase the available tickets in the event model
-        event.availableTickets += numberOfTickets; // Increase available tickets
-
-        // Check if there are users in the waiting list
-        if (event.waitingListCount > 0) {
-            const { user, waitingListEntry } = await getNextWaitingListUser(eventId);
-
-            if (user && waitingListEntry) {
-                await assignTicketToUser(user.id, eventId);
-                await waitingListEntry.destroy();
-                event.waitingListCount -= 1;
-            }
-        }
-
-        await event.save(); // Save the updated event
-
-        // Respond to the user
-        res.status(200).json({
-            message: 'Tickets canceled successfully',
-            availableTickets: event.availableTickets,
-            waitingListCount: event.waitingListCount,
-        });
-    } catch (error) {
-        console.error('Error in cancelTicket:', error);
-        res.status(500).json({ message: 'Internal Server Error' });
-    }
-};
-
-// Helper functions
-async function getNextWaitingListUser(eventId: string) {
-    // Fetch the next user from the waiting list for the event
-    const nextEntry = await WaitingListModel.findOne({
-        where: { eventId },
-        order: [['position', 'ASC']], // ASC to get the next in line (smallest position)
+    res.status(200).json({
+        status: 'success',
+        message: result.booked
+            ? 'Tickets booked successfully'
+            : 'Not enough tickets available, added to waiting list',
+        availableTickets: result.availableTickets,
+        waitingListCount: result.waitingListCount,
     });
+});
 
-    // If no waiting list entry is found, return null
-    if (!nextEntry) return { user: null, waitingListEntry: null };
+export const cancelTicket = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const userId = requireUserId(req);
+    const { eventId } = req.params;
+    const { numberOfTickets } = req.body;
 
-    // Get the user details based on the found waiting list entry
-    const user = await UserModel.findByPk(nextEntry.userId);
+    const result = await eventService.cancelTickets(eventId, userId, numberOfTickets);
 
-    return { user, waitingListEntry: nextEntry };
-}
+    res.status(200).json({
+        status: 'success',
+        message: 'Tickets canceled successfully',
+        availableTickets: result.availableTickets,
+        waitingListCount: result.waitingListCount,
+    });
+});
 
-async function assignTicketToUser(userId: string, eventId: string): Promise<void> {
-    // Find the event by ID
-    const event = await EventModel.findByPk(eventId);
-    if (!event) {
-        throw new Error('Event not found');
-    }
+export const getEventByStatus = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { eventId } = req.params;
+    const status = typeof req.query.status === 'string' ? req.query.status : undefined;
 
-    if (event.availableTickets > 0) {
-        // Create a new ticket order
-        await TicketOrderModel.create({
-            userId,
-            eventId,
-            // Include other ticket details if needed
-        });
+    const event = await eventService.getEventByStatus(eventId, status);
 
-        // Reduce the available tickets count
-        event.availableTickets -= 1;
-        await event.save();
-    } else {
-        // If no tickets are available, add the user to the waiting list
-        const nextPosition = await getNextWaitingListUser(eventId);
-        await WaitingListModel.create({
-            id: uuidv4(),
-            userId,
-            eventId,
-            position: nextPosition?.waitingListEntry?.position, // Add the 'position' property
-        });
-
-        // Update the waiting list count on the event
-        event.waitingListCount += 1;
-        await event.save();
-    }
-}
-
-
-
-export const getEventByStatus = async (req: RequestExt, res: Response): Promise<void> => {
-    try {
-        const { eventId } = req.params; // Get eventId from URL parameters
-        const { status } = req.body; // Get the status from query parameters
-
-        // Validate status
-        const validStatuses = ['available ticket', 'sold out', 'waiting list'];
-        if (status && !validStatuses.includes(status as string)) {
-            res.status(400).json({ message: 'Invalid status provided' });
-            return;
-        }
-
-        // Fetch the event by eventId
-        const event = await EventModel.findByPk(eventId);
-        if (!event) {
-            res.status(404).json({ message: 'Event not found' });
-            return;
-        }
-
-        // Check if the event status matches the requested status
-        if (status && event.status !== status) {
-            res.status(404).json({ message: `Event status is not '${status}'`, currentStatus: event.status });
-            return;
-        }
-
-        // Send the event details if status is matched or no status provided
-        res.status(200).json({
-            status: 'success',
-            message: 'Event found',
-            data: event,
-        });
-    } catch (error) {
-        console.error('Error in filterEventByStatus:', error);
-        res.status(500).json({ message: 'Internal Server Error' });
-    }
-};
-
-// export const getNextWaitingListUser = async (eventId: string) => {
-//     try {
-//         const nextEntry = await WaitingListModel.findOne({
-//             where: { eventId },
-//             order: [['position', 'ASC']],
-//         });
-
-//         if (!nextEntry) return { user: null, waitingListEntry: null };
-
-//         const user = await UserModel.findByPk(nextEntry.userId); 
-//         return { user, waitingListEntry: nextEntry };
-//     } catch (error) {
-//         console.error('Error getting next waiting list user:', error);
-//         return null; // Return null in case of error
-//     }
-// };
-
-export const addToWaitingList = async (req: RequestExt, res: Response) => {
-    try {
-        const { eventId } = req.params;
-        const userId = req.user?.id;
-
-        // Check if user is authenticated
-        if (!userId) {
-            return res.status(401).json({ message: 'Unauthorized' });
-        }
-
-        // Find the event by ID
-        const event = await EventModel.findByPk(eventId);
-        if (!event) {
-            return res.status(404).json({ message: 'Event not found' });
-        }
-
-        const nextPosition = await getNextWaitingListUser(eventId);
-        const newPosition = nextPosition?.waitingListEntry?.position ? nextPosition.waitingListEntry.position + 1 : 1;
-
-        // Add user to the waiting list
-        await WaitingListModel.create({
-            id: uuidv4(),
-            userId,
-            eventId,
-            position: newPosition,
-        });
-
-        // Update waiting list count on the event
-        event.waitingListCount += 1;
-        await event.save();
-
-        res.status(200).json({ message: 'Added to waiting list successfully' });
-    } catch (error) {
-        console.error('Error adding to waiting list:', error);
-        res.status(500).json({ message: 'Internal Server Error' });
-    }
-};
+    res.status(200).json({ status: 'success', message: 'Event found', data: event });
+});

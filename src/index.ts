@@ -1,39 +1,28 @@
-import express from "express";
-import cors from 'cors';
-import bodyParser from "body-parser";
-import sequelize from "./db/sequelize";
-import userRouter from "./routes/user.route";
-import eventRouter from "./routes/event.route";
+import { createApp } from './app';
+import { env } from './config/env';
+import sequelize from './db/sequelize';
 
-const app = express();
-const port = process.env.PORT || 4000;
-
-app.use(bodyParser.json());
-app.use(cors()); // Enable CORS
-app.use(express.json()); // Parse JSON bodies
-app.use(
-    bodyParser.urlencoded({
-        extended: true,
-    })
-);
-
-app.get("/", (req, res) => {
-    res.send("Hello World!");
-});
-
-app.use("/api/v1/user", userRouter);
-app.use("/api/v1/event", eventRouter);
+const app = createApp();
 
 async function startApp() {
     try {
         await sequelize.authenticate();
-        console.log("Connection has been established successfully.");
+        console.log('Connection has been established successfully.');
 
-        await sequelize.sync().then(() => {
-            app.listen(port, () => {
-                console.log(`server is listening on http://localhost:${port}....`);
+        const server = app.listen(env.PORT, () => {
+            console.log(`server is listening on http://localhost:${env.PORT}....`);
+        });
+
+        const shutdown = async (signal: string) => {
+            console.log(`${signal} received: closing server gracefully.`);
+            server.close(async () => {
+                await sequelize.close();
+                process.exit(0);
             });
-        })
+        };
+
+        process.on('SIGTERM', () => void shutdown('SIGTERM'));
+        process.on('SIGINT', () => void shutdown('SIGINT'));
     } catch (error: any) {
         console.error(`Error starting server: ${error.message}`);
         process.exit(1);
